@@ -1,0 +1,189 @@
+
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>R31 Voice Section Finder — v2</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 16px; }
+    .card { max-width: 800px; margin: 0 auto; padding: 16px; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.08); }
+    h1 { font-size: 20px; margin: 0 0 12px; }
+    .btn { width: 100%; padding: 14px; font-size: 18px; border-radius: 12px; border: 0; background: #0ea5e9; color: white; }
+    .btn:active { transform: scale(0.98); }
+    .row { margin-top: 10px; font-size: 14px; }
+    .label { color: #334155; }
+    .out { font-weight: 600; }
+    .muted { color:#64748b; font-size:12px; margin-top:8px; }
+    .big { font-size: 48px; font-weight: 800; color: #0f172a; text-align:center; margin: 12px 0; }
+    .ok { color:#16a34a; }
+    .err { color:#dc2626; }
+    .grid { display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 12px; }
+    input[type=text] { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #cbd5e1; border-radius: 8px; }
+    .tiny { font-size: 12px; }
+    .tests button { padding: 6px 8px; border-radius: 8px; border: 1px solid #cbd5e1; background: white; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>R31 Voice Section Finder — v2</h1>
+    <button id="talk" class="btn">Tap to Speak Address (iPhone: Safari)</button>
+    <div class="grid">
+      <input id="manual" type="text" placeholder="Or type: e.g., 991 4th Ave" />
+      <button id="go" class="btn" style="background:#10b981">Find Section</button>
+    </div>
+    <div class="row"><span class="label">Heard:</span> <span id="heard" class="out"></span></div>
+    <div class="row"><span class="label">Parsed:</span> <span id="parsed" class="out"></span></div>
+    <div class="big" id="result">—</div>
+    <div class="tests tiny">
+      Quick test: 
+      <button data-q="991 4th Avenue">991 4th Avenue</button>
+      <button data-q="275 8 3/4 St">275 8 3/4 St</button>
+      <button data-q="510 River Ave North">510 River Ave North</button>
+    </div>
+    <div class="muted">Tip: iPhone requires mic permission in Safari. If voice fails, type in the box and tap <b>Find Section</b>.</div>
+  </div>
+
+<script>
+const DATA = {"W Brewster St": [{"section": "A1", "range": "109-130"}], "E Allen St": [{"section": "A1", "range": "101"}], "W Allen St": [{"section": "A1", "range": "105-116"}], "River Ave N": [{"section": "A1", "range": "201-720"}, {"section": "A3", "range": "510"}, {"section": "B1", "range": "711-719"}], "Barron Dunn Ave": [{"section": "A4", "range": "624-736"}], "Cty Rd V": [{"section": "B4", "range": "1955-3501"}, {"section": "B4", "range": "13854-14065"}], "4th St": [{"section": "C3", "range": "21-179"}], "5th St": [{"section": "B3", "range": "281-312"}, {"section": "C3", "range": "64-208"}], "6-6 ¼ St": [{"section": "B3", "range": "352-606"}], "6 ½ St": [{"section": "B3", "range": "353-381"}], "6th St": [{"section": "A3", "range": "587"}, {"section": "C4", "range": "82-181"}], "7th St": [{"section": "A5", "range": "108-137"}, {"section": "B3", "range": "291-306"}, {"section": "C4", "range": "154-244"}], "7 ½ St": [{"section": "A5", "range": "18-72"}, {"section": "B3", "range": "352-471"}, {"section": "C2", "range": "689"}], "8 ¼ St": [{"section": "A5", "range": "27-109"}], "8 ½ St": [{"section": "B1", "range": "214"}], "8 ¾ St": [{"section": "A1", "range": "275-299"}, {"section": "B1", "range": "301-383"}, {"section": "C2", "range": "474-490"}], "9th St": [{"section": "B1", "range": "301-302"}, {"section": "B2", "range": "361-384"}, {"section": "C2", "range": "519-723"}], "10th St": [{"section": "A2", "range": "473"}, {"section": "B1", "range": "159-243"}, {"section": "B2", "range": "279-378"}], "11th St": [{"section": "A2", "range": "348-540"}, {"section": "C1", "range": "556-565"}, {"section": "B1", "range": "154"}], "11 ¼ St": [{"section": "A2", "range": "321-323"}, {"section": "B2", "range": "301-302"}], "12th St": [{"section": "B1", "range": "237-337"}, {"section": "C1", "range": "328-570"}], "12 ¼ St": [{"section": "C1", "range": "447-481"}], "13th St": [{"section": "C1", "range": "530"}], "4 ¾ St": [{"section": "C4", "range": "13-35"}], "190th St": [{"section": "B4", "range": "14255"}, {"section": "B4", "range": "14377"}], "250th St": [{"section": "B4", "range": "13859-13954"}], "290th St": [{"section": "A4", "range": "14227-14450"}, {"section": "B4", "range": "14158"}], "½ Ave": [{"section": "A4", "range": "529-565"}, {"section": "C3", "range": "405-430"}], "1st Ave": [{"section": "A5", "range": "701-798"}, {"section": "C4", "range": "624-650"}], "1 ½ Ave": [{"section": "A5", "range": "770-771"}, {"section": "C4", "range": "545-588"}], "2nd Ave": [{"section": "C3", "range": "394-503"}, {"section": "C4", "range": "567-714"}], "2 ½ Ave": [{"section": "B1", "range": "917-959"}, {"section": "B2", "range": "1035-1166"}], "3rd Ave": [{"section": "B3", "range": "543-552"}], "3-2 ¾ Ave": [{"section": "B3", "range": "595-825"}], "3 ½ Ave": [{"section": "A2", "range": "1112-1128"}, {"section": "C1", "range": "1168-1210"}], "4th Ave": [{"section": "A2", "range": "1003-1065"}, {"section": "B2", "range": "820-991"}], "5th Ave": [{"section": "A2", "range": "1002-1128"}, {"section": "A3", "range": "655-803"}, {"section": "C1", "range": "1175-1264"}], "5 ½ Ave": [{"section": "A3", "range": "611-654"}], "6th Ave": [{"section": "A3", "range": "765"}, {"section": "C1", "range": "1064-1287"}], "6 ½ Ave": [{"section": "C2", "range": "790-871"}], "7th Ave": [{"section": "C2", "range": "715-880"}], "1390th Ave": [{"section": "B4", "range": "1582-1765"}], "1410th Ave": [{"section": "B4", "range": "1875"}], "1420th Ave": [{"section": "B4", "range": "2895"}], "1440th Ave": [{"section": "A4", "range": "2577-2654"}, {"section": "C4", "range": "1627-1795"}], "1450th Ave": [{"section": "A4", "range": "2414-2696"}]};
+
+// === Helpers ===
+function say(text) { 
+  try { const u = new SpeechSynthesisUtterance(text); speechSynthesis.cancel(); speechSynthesis.speak(u); } catch(e) {}
+}
+
+// Canonical key for matching (strips punctuation, standardizes suffixes)
+function canonKey(s) {
+  s = s.toLowerCase().trim();
+  s = s.replace(/\./g,"");
+  s = s.replace(/\bstreet\b/g,"st").replace(/\bavenue\b/g,"ave");
+  s = s.replace(/\bnorth\b/g,"n").replace(/\bsouth\b/g,"s")
+       .replace(/\beast\b/g,"e").replace(/\bwest\b/g,"w");
+  s = s.replace(/\s+/g," ");
+  return s;
+}
+
+// Build a normalized lookup map
+const KEY_MAP = {};
+for (const name in DATA) {
+  KEY_MAP[canonKey(name)] = name; // canonical -> original key
+}
+
+// Flexible normalize for spoken text -> {number, streetKey}
+function normalizeTranscript(t) {
+  let s = (t || "").toLowerCase().trim();
+  // quick cleanup
+  s = s.replace(/for that|forthat/g, "4th");
+  // numbers words -> digits
+  const words = {"zero":0,"one":1,"two":2,"three":3,"four":4,"five":5,"six":6,"seven":7,"eight":8,"nine":9,"ten":10};
+  s = s.replace(/\b(one|two|three|four|five|six|seven|eight|nine|ten)\b/g, m => words[m]);
+  // ordinals
+  s = s.replace(/\bfourth\b/g, "4th").replace(/\bfifth\b/g,"5th").replace(/\bsixth\b/g,"6th")
+       .replace(/\bseventh\b/g,"7th").replace(/\beighth\b/g,"8th").replace(/\bninth\b/g,"9th")
+       .replace(/\btenth\b/g,"10th").replace(/\beleventh\b/g,"11th").replace(/\btwelfth\b/g,"12th")
+       .replace(/\bfirst\b/g,"1st").replace(/\bsecond\b/g,"2nd").replace(/\bthird\b/g,"3rd");
+  // fractions
+  s = s.replace(/one half|a half|half/g, " 1/2 ");
+  s = s.replace(/one quarter|a quarter|quarter/g, " 1/4 ");
+  s = s.replace(/three quarters|3 quarters|three quarter/g, " 3/4 ");
+  s = s.replace(/½/g, "1/2").replace(/¼/g, "1/4").replace(/¾/g,"3/4");
+  // abbreviations
+  s = s.replace(/\bave(nue)?\b/g, "ave").replace(/\bst(reet)?\b/g, "st");
+  s = s.replace(/\bnorth\b|\bn\b/g, "n").replace(/\bwest\b|\bw\b/g, "w")
+       .replace(/\beast\b|\be\b/g, "e").replace(/\bsouth\b|\bs\b/g, "s");
+  s = s.replace(/\s+/g," ").trim();
+
+  // number first?
+  let m = s.match(/^(\d+)\s+(.*)$/);
+  let num = null, rest = s;
+  if (m) { num = parseInt(m[1],10); rest = m[2]; }
+
+  // unify to our canon key
+  const key = canonKey(rest);
+  // fuzzy: try a couple small fixes
+  let streetKey = KEY_MAP[key];
+  if (!streetKey) {
+    // try swapping " ave n" -> " n ave"
+    let tweak = key.replace(/ ave n$/, " n ave").replace(/ st n$/, " n st");
+    streetKey = KEY_MAP[tweak];
+    if (!streetKey) {
+      // try removing extra spaces
+      tweak = key.replace(/\s+/g," ");
+      streetKey = KEY_MAP[tweak];
+    }
+  }
+
+  return {number: num, streetKey, show: (num ? num+' ' : '') + (streetKey || rest)};
+}
+
+function inRange(num, rangeStr) {
+  if (!rangeStr) return false;
+  const clean = rangeStr.replace(/[^0-9\-]/g,"");
+  if (!clean) return false;
+  if (clean.includes("-")) {
+    const [a,b] = clean.split("-").map(x=>parseInt(x,10));
+    if (isNaN(a) || isNaN(b)) return false;
+    return num >= a && num <= b;
+  } else {
+    const v = parseInt(clean,10);
+    return num === v;
+  }
+}
+
+function lookupSection(number, streetKey) {
+  if (!streetKey) return null;
+  const entries = DATA[streetKey];
+  let best = null, bestWidth = Infinity;
+  for (const e of entries) {
+    if (number == null) continue;
+    if (inRange(number, e.range)) {
+      let width = 999999;
+      const cl = e.range.replace(/[^0-9\-]/g,"");
+      if (cl.includes("-")) { const [a,b]=cl.split("-").map(n=>parseInt(n,10)); width = Math.abs(b-a); }
+      else { width = 0; }
+      if (width < bestWidth) { best = e.section; bestWidth = width; }
+    }
+  }
+  if (!best && entries.length === 1) best = entries[0].section;
+  return best;
+}
+
+const heard = document.getElementById('heard');
+const parsed = document.getElementById('parsed');
+const result = document.getElementById('result');
+const btn = document.getElementById('talk');
+const manual = document.getElementById('manual');
+const go = document.getElementById('go');
+
+function handleQuery(txt) {
+  heard.textContent = txt || '';
+  const norm = normalizeTranscript(txt || '');
+  parsed.textContent = norm.show;
+  const sec = lookupSection(norm.number, norm.streetKey);
+  if (sec) { result.textContent = sec; result.className = 'big ok'; say(sec); }
+  else { result.textContent = 'No match'; result.className = 'big err'; say('No match'); }
+}
+
+function startListening() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    alert('Speech recognition not supported in this browser. Use the text box, or open in Safari/Chrome on iPhone.');
+    return;
+  }
+  const rec = new SR();
+  rec.lang = 'en-US';
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+  rec.onresult = (e) => { const txt = e.results[0][0].transcript; handleQuery(txt); };
+  rec.onerror = () => { result.textContent = 'Mic error'; result.className = 'big err'; };
+  rec.onend = () => { btn.disabled = false; btn.textContent = 'Tap to Speak Address (iPhone: Safari)'; };
+  btn.disabled = true; btn.textContent = 'Listening…';
+  rec.start();
+}
+
+btn.addEventListener('click', startListening);
+go.addEventListener('click', () => handleQuery(manual.value));
+document.querySelectorAll('.tests button').forEach(b => b.addEventListener('click', () => handleQuery(b.dataset.q)));
+</script>
+</body>
+</html>
