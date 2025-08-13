@@ -4,10 +4,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>R31 Voice Section Finder — v3</title>
+  <title>R31 Section Finder — v4.1 (Voice + OCR)</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 16px; }
-    .card { max-width: 820px; margin: 0 auto; padding: 16px; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.08); }
+    .card { max-width: 940px; margin: 0 auto; padding: 16px; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.08); }
     h1 { font-size: 20px; margin: 0 0 12px; }
     .btn { padding: 12px 14px; border-radius: 12px; border: 0; background: #0ea5e9; color: white; font-size: 16px; }
     .btn.secondary { background: #10b981; }
@@ -21,62 +21,78 @@
     input[type=text] { flex:1; min-width:220px; padding: 10px; font-size: 16px; border: 1px solid #cbd5e1; border-radius: 8px; }
     select { padding:8px; border-radius:8px; border:1px solid #cbd5e1; }
     .bar { display:flex; gap:8px; flex-wrap:wrap; }
+    .box { background:#f8fafc; border:1px solid #e2e8f0; padding:10px; border-radius:8px; margin-top:10px; font-size:13px; }
+    .k { font-weight:600; color:#0f172a; }
+    /* Camera overlay */
+    .vidwrap { position: relative; display:none; margin-top:10px; }
+    video, canvas { max-width: 100%; width: 100%; border-radius: 8px; }
+    .bbox { position:absolute; border:3px dashed #0ea5e9; box-shadow: 0 0 0 9999px rgba(0,0,0,.25) inset; }
   </style>
+  <!-- Tesseract.js for OCR (requires HTTPS when hosted) -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
 <body>
   <div class="card">
-    <h1>R31 Voice Section Finder — v3</h1>
+    <h1>R31 Section Finder — v4.1 (Voice + OCR)</h1>
     <div class="bar">
-      <button id="enable" class="btn">🔊 Enable Voice on iPhone</button>
-      <button id="talk" class="btn secondary">🎙️ Tap to Speak</button>
+      <button id="enable" class="btn">🔊 Enable Voice (iPhone)</button>
+      <button id="talk" class="btn secondary">🎙️ Speak</button>
       <input id="manual" type="text" placeholder="Or type: e.g., 991 4th Ave" />
       <button id="go" class="btn secondary">Find Section</button>
+      <button id="scan" class="btn" style="background:#6366f1">📷 Scan Address (OCR)</button>
       <select id="voiceSel"><option value="">Default Voice</option></select>
     </div>
     <div class="row"><span class="label">Heard:</span> <span id="heard" class="out"></span></div>
     <div class="row"><span class="label">Parsed:</span> <span id="parsed" class="out"></span></div>
     <div class="big" id="result">—</div>
-    <div class="muted">If it doesn’t speak on iPhone: 1) make sure you opened this in Safari, 2) tap “Enable Voice”, 3) ensure Silent/Ring switch is not on silent.</div>
+    <div id="why" class="box" style="display:none"></div>
+
+    <div class="vidwrap" id="vidwrap">
+      <video id="video" playsinline></video>
+      <div class="bbox" id="bbox" style="left:10%; top:25%; width:80%; height:35%;"></div>
+      <div class="bar" style="margin-top:8px;">
+        <button id="snap" class="btn secondary">📸 Capture</button>
+        <button id="closeCam" class="btn" style="background:#ef4444">✖ Close</button>
+      </div>
+      <canvas id="canvas" style="display:none;"></canvas>
+    </div>
+
+    <div class="muted">Tip: For OCR, center the delivery address inside the dashed box. Printed labels work best. Handwritten may require a steady shot & good lighting.</div>
   </div>
 
 <script>
-const DATA = {"W Brewster St": [{"section": "A1", "range": "109-130"}], "E Allen St": [{"section": "A1", "range": "101"}], "W Allen St": [{"section": "A1", "range": "105-116"}], "River Ave N": [{"section": "A1", "range": "201-720"}, {"section": "A3", "range": "510"}, {"section": "B1", "range": "711-719"}], "Barron Dunn Ave": [{"section": "A4", "range": "624-736"}], "Cty Rd V": [{"section": "B4", "range": "1955-3501"}, {"section": "B4", "range": "13854-14065"}], "4th St": [{"section": "C3", "range": "21-179"}], "5th St": [{"section": "B3", "range": "281-312"}, {"section": "C3", "range": "64-208"}], "6-6 ¼ St": [{"section": "B3", "range": "352-606"}], "6 ½ St": [{"section": "B3", "range": "353-381"}], "6th St": [{"section": "A3", "range": "587"}, {"section": "C4", "range": "82-181"}], "7th St": [{"section": "A5", "range": "108-137"}, {"section": "B3", "range": "291-306"}, {"section": "C4", "range": "154-244"}], "7 ½ St": [{"section": "A5", "range": "18-72"}, {"section": "B3", "range": "352-471"}, {"section": "C2", "range": "689"}], "8 ¼ St": [{"section": "A5", "range": "27-109"}], "8 ½ St": [{"section": "B1", "range": "214"}], "8 ¾ St": [{"section": "A1", "range": "275-299"}, {"section": "B1", "range": "301-383"}, {"section": "C2", "range": "474-490"}], "9th St": [{"section": "B1", "range": "301-302"}, {"section": "B2", "range": "361-384"}, {"section": "C2", "range": "519-723"}], "10th St": [{"section": "A2", "range": "473"}, {"section": "B1", "range": "159-243"}, {"section": "B2", "range": "279-378"}], "11th St": [{"section": "A2", "range": "348-540"}, {"section": "C1", "range": "556-565"}, {"section": "B1", "range": "154"}], "11 ¼ St": [{"section": "A2", "range": "321-323"}, {"section": "B2", "range": "301-302"}], "12th St": [{"section": "B1", "range": "237-337"}, {"section": "C1", "range": "328-570"}], "12 ¼ St": [{"section": "C1", "range": "447-481"}], "13th St": [{"section": "C1", "range": "530"}], "4 ¾ St": [{"section": "C4", "range": "13-35"}], "190th St": [{"section": "B4", "range": "14255"}, {"section": "B4", "range": "14377"}], "250th St": [{"section": "B4", "range": "13859-13954"}], "290th St": [{"section": "A4", "range": "14227-14450"}, {"section": "B4", "range": "14158"}], "½ Ave": [{"section": "A4", "range": "529-565"}, {"section": "C3", "range": "405-430"}], "1st Ave": [{"section": "A5", "range": "701-798"}, {"section": "C4", "range": "624-650"}], "1 ½ Ave": [{"section": "A5", "range": "770-771"}, {"section": "C4", "range": "545-588"}], "2nd Ave": [{"section": "C3", "range": "394-503"}, {"section": "C4", "range": "567-714"}], "2 ½ Ave": [{"section": "B1", "range": "917-959"}, {"section": "B2", "range": "1035-1166"}], "3rd Ave": [{"section": "B3", "range": "543-552"}], "3-2 ¾ Ave": [{"section": "B3", "range": "595-825"}], "3 ½ Ave": [{"section": "A2", "range": "1112-1128"}, {"section": "C1", "range": "1168-1210"}], "4th Ave": [{"section": "A2", "range": "1003-1065"}, {"section": "B2", "range": "820-991"}], "5th Ave": [{"section": "A2", "range": "1002-1128"}, {"section": "A3", "range": "655-803"}, {"section": "C1", "range": "1175-1264"}], "5 ½ Ave": [{"section": "A3", "range": "611-654"}], "6th Ave": [{"section": "A3", "range": "765"}, {"section": "C1", "range": "1064-1287"}], "6 ½ Ave": [{"section": "C2", "range": "790-871"}], "7th Ave": [{"section": "C2", "range": "715-880"}], "1390th Ave": [{"section": "B4", "range": "1582-1765"}], "1410th Ave": [{"section": "B4", "range": "1875"}], "1420th Ave": [{"section": "B4", "range": "2895"}], "1440th Ave": [{"section": "A4", "range": "2577-2654"}, {"section": "C4", "range": "1627-1795"}], "1450th Ave": [{"section": "A4", "range": "2414-2696"}]};
+const DATA = {"W Brewster St": [{"section": "A1", "range": "109-130"}], "E Allen St": [{"section": "A1", "range": "101"}], "W Allen St": [{"section": "A1", "range": "105-116"}], "River Ave N": [{"section": "A1", "range": "201-720"}, {"section": "A3", "range": "510"}, {"section": "B1", "range": "711-719"}], "8 ¾ St": [{"section": "A1", "range": "275-299"}, {"section": "B1", "range": "301-383"}, {"section": "C2", "range": "474-490"}], "3 ½ Ave": [{"section": "A2", "range": "1112-1128"}, {"section": "C1", "range": "1168-1210"}], "4th Ave": [{"section": "A2", "range": "1003-1065"}, {"section": "B2", "range": "820-991"}], "5th Ave": [{"section": "B2", "range": "873-896"}, {"section": "A2", "range": "1002-1128"}, {"section": "A3", "range": "655-803"}, {"section": "C1", "range": "1175-1264"}], "11th St": [{"section": "A2", "range": "348-540"}, {"section": "B1", "range": "154"}, {"section": "C1", "range": "556-565"}], "11 ¼ St": [{"section": "A2", "range": "321-323"}, {"section": "B2", "range": "301-302"}], "10th St": [{"section": "B2", "range": "279-378"}, {"section": "B1", "range": "159-243"}, {"section": "A2", "range": "473"}], "5 ½ Ave": [{"section": "A3", "range": "611-654"}], "6th Ave": [{"section": "A3", "range": "765"}, {"section": "C1", "range": "1064-1287"}], "7th St": [{"section": "A3", "range": "554-677"}, {"section": "A5", "range": "108-137"}, {"section": "B3", "range": "291-306"}, {"section": "C4", "range": "154-244"}], "7 ½ St": [{"section": "A3", "range": "535-606"}, {"section": "A5", "range": "18-72"}, {"section": "B3", "range": "352-471"}, {"section": "C2", "range": "689"}], "6th St": [{"section": "A3", "range": "587"}, {"section": "C4", "range": "82-181"}], "Barron Dunn Ave": [{"section": "A4", "range": "624-736"}], "½ Ave": [{"section": "A4", "range": "529-565"}, {"section": "C3", "range": "405-430"}], "290th St": [{"section": "A4", "range": "14227-14450"}, {"section": "B4", "range": "14158"}], "1430th Ave": [{"section": "A4", "range": "3035-3200"}], "1440th Ave": [{"section": "C4", "range": "1627-1795"}, {"section": "A4", "range": "2577-2654"}], "1450th Ave": [{"section": "A4", "range": "2414-2696"}], "1st Ave": [{"section": "C4", "range": "624-650"}, {"section": "A5", "range": "701-798"}], "1 ½ Ave": [{"section": "C4", "range": "545-588"}, {"section": "A5", "range": "770-771"}], "8 ¼ St": [{"section": "A5", "range": "27-109"}], "Waite St": [{"section": "B1", "range": "610-701"}], "2 ½ Ave": [{"section": "B1", "range": "917-959"}, {"section": "B2", "range": "1035-1166"}], "8 ½ St": [{"section": "B1", "range": "214"}], "9th St": [{"section": "B1", "range": "301-302"}, {"section": "B2", "range": "361-384"}, {"section": "C2", "range": "519-723"}], "12th St": [{"section": "B1", "range": "237-337"}, {"section": "C1", "range": "328-570"}], "8 ¾ – 9th St": [{"section": "B2", "range": "488"}], "3-2 ¾ Ave": [{"section": "B3", "range": "595-825"}], "3rd Ave": [{"section": "B3", "range": "543-552"}], "5th St": [{"section": "B3", "range": "281-312"}, {"section": "C3", "range": "64-208"}], "6 ½ St": [{"section": "B3", "range": "353-381"}], "6-6 ¼ St": [{"section": "B3", "range": "352-606"}], "Cty Rd V": [{"section": "B4", "range": "1955-3501"}, {"section": "B4", "range": "13854-14065"}], "190th St": [{"section": "B4", "range": "14255"}, {"section": "B4", "range": "14377"}], "250th St": [{"section": "B4", "range": "13859-13954"}], "1390th Ave": [{"section": "B4", "range": "1582-1765"}], "1410th Ave": [{"section": "B4", "range": "1875"}], "1420th Ave": [{"section": "B4", "range": "2895"}], "5th Ave (C1)": [{"section": "C1", "range": "1175-1264"}], "6th Ave (C1)": [{"section": "C1", "range": "1064-1287"}], "3 ½ Ave (C1)": [{"section": "C1", "range": "1168-1210"}], "11th St (C1)": [{"section": "C1", "range": "556-565"}], "12th St (C1)": [{"section": "C1", "range": "328-570"}], "12 ¼ St (C1)": [{"section": "C1", "range": "447-481"}], "13th St": [{"section": "C1", "range": "530"}], "6 ½ Ave": [{"section": "C2", "range": "790-871"}], "7th Ave": [{"section": "C2", "range": "715-880"}], "2nd Ave": [{"section": "C3", "range": "394-503"}, {"section": "C4", "range": "567-714"}], "4th St": [{"section": "C3", "range": "21-179"}], "5th St (C3)": [{"section": "C3", "range": "64-208"}], "2nd Ave (C4)": [{"section": "C4", "range": "567-714"}], "4 ¾ St": [{"section": "C4", "range": "13-35"}], "6th St (C4)": [{"section": "C4", "range": "82-181"}], "7th St (C4)": [{"section": "C4", "range": "154-244"}]};
 
-// ---- TTS handling with iOS primer ----
+// ===== TTS (iPhone unlock) =====
 let voices = [];
 let speakEnabled = false;
-
 function refreshVoices() {
   voices = speechSynthesis.getVoices() || [];
   const sel = document.getElementById('voiceSel');
   const prev = sel.value;
   sel.innerHTML = '<option value="">Default Voice</option>' + voices
     .filter(v => v.lang && v.lang.toLowerCase().startsWith('en'))
-    .map((v,i) => `<option value="$0">${v.name} (${v.lang})</option>`)
+    .map((v,i) => `<option value="${i}">${v.name} (${v.lang})</option>`)
     .join('');
   sel.value = prev;
 }
-
 if ('speechSynthesis' in window) {
   refreshVoices();
   window.speechSynthesis.onvoiceschanged = refreshVoices;
 }
-
 function say(text) {
   try {
-    if (!speakEnabled) return; // require primer on iOS
+    if (!speakEnabled) return;
     const u = new SpeechSynthesisUtterance(text);
     const sel = document.getElementById('voiceSel');
     const idx = parseInt(sel.value, 10);
     if (!isNaN(idx) && voices[idx]) u.voice = voices[idx];
     u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
-    speechSynthesis.cancel(); // stop any queued
+    speechSynthesis.cancel();
     speechSynthesis.speak(u);
   } catch(e) {}
 }
-
 function enableVoice() {
-  // iOS Safari often needs a user-gesture TTS to unlock audio output.
   try {
     const u = new SpeechSynthesisUtterance('Ready');
     speechSynthesis.cancel();
@@ -86,49 +102,62 @@ function enableVoice() {
   } catch(e) { console.log(e); }
 }
 
-// ---- Normalization & lookup (same as v2) ----
+// ===== Parsing helpers =====
 function canonKey(s) {
   s = s.toLowerCase().trim();
-  s = s.replace(/\./g,"");
-  s = s.replace(/\bstreet\b/g,"st").replace(/\bavenue\b/g,"ave");
-  s = s.replace(/\bnorth\b/g,"n").replace(/\bsouth\b/g,"s")
-       .replace(/\beast\b/g,"e").replace(/\bwest\b/g,"w");
+  s = s.replace(/[\.,]/g,"");
+  s = s.replace(/\bavenue\b/g,"ave").replace(/\bstreet\b/g,"st");
+  s = s.replace(/\bnorth\b/g,"n").replace(/\bsouth\b/g,"s").replace(/\beast\b/g,"e").replace(/\bwest\b/g,"w");
   s = s.replace(/\s+/g," ");
   return s;
 }
-
-const KEY_MAP = {}
+// Map canonical to display key
+const KEY_MAP = {};
 for (const name in DATA) { KEY_MAP[canonKey(name)] = name; }
 
-function normalizeTranscript(t) {
-  let s = (t || "").toLowerCase().trim();
-  s = s.replace(/for that|forthat/g, "4th");
-  const words = {"zero":0,"one":1,"two":2,"three":3,"four":4,"five":5,"six":6,"seven":7,"eight":8,"nine":9,"ten":10};
-  s = s.replace(/\b(one|two|three|four|five|six|seven|eight|nine|ten)\b/g, m => words[m]);
-  s = s.replace(/\bfourth\b/g, "4th").replace(/\bfifth\b/g,"5th").replace(/\bsixth\b/g,"6th")
+function normalizeAddress(input) {
+  let s = (input || "").toLowerCase().trim();
+
+  // Strong fraction normalization (handles hyphens and "and a half" forms)
+  // Convert things like "6-1/2 st", "6 1/2 st", "6 and a half st"
+  s = s.replace(/(\d+)\s*(?:-|\s)\s*1\s*\/\s*2\b/g, "$1 1/2");
+  s = s.replace(/(\d+)\s*(?:-|\s)\s*3\s*\/\s*4\b/g, "$1 3/4");
+  s = s.replace(/(\d+)\s+and\s+a\s+half\b/g, "$1 1/2");
+  s = s.replace(/(\d+)\s+and\s+(?:three\s+quarters|3\s*\/\s*4)\b/g, "$1 3/4");
+
+  // Words → digits (0–12 for safety)
+  const words = {"zero":0,"one":1,"two":2,"three":3,"four":4,"five":5,"six":6,"seven":7,"eight":8,"nine":9,"ten":10,"eleven":11,"twelve":12};
+  s = s.replace(/\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/g, m => words[m]);
+
+  // Ordinals
+  s = s.replace(/\bfourth\b/g,"4th").replace(/\bfifth\b/g,"5th").replace(/\bsixth\b/g,"6th")
        .replace(/\bseventh\b/g,"7th").replace(/\beighth\b/g,"8th").replace(/\bninth\b/g,"9th")
        .replace(/\btenth\b/g,"10th").replace(/\beleventh\b/g,"11th").replace(/\btwelfth\b/g,"12th")
        .replace(/\bfirst\b/g,"1st").replace(/\bsecond\b/g,"2nd").replace(/\bthird\b/g,"3rd");
-  s = s.replace(/one half|a half|half/g, " 1/2 ");
-  s = s.replace(/one quarter|a quarter|quarter/g, " 1/4 ");
-  s = s.replace(/three quarters|3 quarters|three quarter/g, " 3/4 ");
-  s = s.replace(/½/g, "1/2").replace(/¼/g, "1/4").replace(/¾/g,"3/4");
-  s = s.replace(/\bave(nue)?\b/g, "ave").replace(/\bst(reet)?\b/g, "st");
+
+  // Fractions unify to unicode in our dataset for street names like "6 ½ St", "8 ¾ St"
+  s = s.replace(/\b1\s*\/\s*2\b/g, "½");
+  s = s.replace(/\b1\s*\/\s*4\b/g, "¼");
+  s = s.replace(/\b3\s*\/\s*4\b/g, "¾");
+
+  // Abbreviations
+  s = s.replace(/\bavenue\b|\bave\.?\b/g, "ave");
+  s = s.replace(/\bstreet\b|\bst\.?\b/g, "st");
   s = s.replace(/\bnorth\b|\bn\b/g, "n").replace(/\bwest\b|\bw\b/g, "w")
        .replace(/\beast\b|\be\b/g, "e").replace(/\bsouth\b|\bs\b/g, "s");
+
   s = s.replace(/\s+/g," ").trim();
 
-  let m = s.match(/^(\d+)\s+(.*)$/);
+  // Extract house number
+  const m = s.match(/^(\d+)\s+(.*)$/);
   let num = null, rest = s;
   if (m) { num = parseInt(m[1],10); rest = m[2]; }
 
+  // Canonical key for matching, and display string
   const key = canonKey(rest);
-  let streetKey = KEY_MAP[key];
-  if (!streetKey) {
-    let tweak = key.replace(/ ave n$/, " n ave").replace(/ st n$/, " n st");
-    streetKey = KEY_MAP[tweak] || KEY_MAP[key.replace(/\s+/g," ")];
-  }
-  return { number: num, streetKey, show: (num ? num+' ' : '') + (streetKey || rest) };
+  const streetKey = KEY_MAP[key] || null;
+  const display = (num ? num+' ' : '') + rest.split(" ").map(w=>w[0]?w[0].toUpperCase()+w.slice(1):w).join(" ");
+  return { number:num, streetKey, display };
 }
 
 function inRange(num, rangeStr) {
@@ -166,37 +195,124 @@ function lookupSection(number, streetKey) {
 const heard = document.getElementById('heard');
 const parsed = document.getElementById('parsed');
 const result = document.getElementById('result');
+const why = document.getElementById('why');
 const btn = document.getElementById('talk');
 const manual = document.getElementById('manual');
 const go = document.getElementById('go');
 const enableBtn = document.getElementById('enable');
 
-function handleQuery(txt) {
-  heard.textContent = txt || '';
-  const norm = normalizeTranscript(txt || '');
-  parsed.textContent = norm.show;
-  const sec = lookupSection(norm.number, norm.streetKey);
-  if (sec) { result.textContent = sec; result.className = 'big ok'; say(sec); }
-  else { result.textContent = 'No match'; result.className = 'big err'; say('No match'); }
+function showNoMatch(streetKey, number) {
+  if (!streetKey) {
+    why.style.display = 'block';
+    why.innerHTML = "Street not in case cards. Check spelling (St/Ave) and direction (N/W). For fraction streets try formats like ‘6 1/2 St’ or ‘6-1/2 St’.";
+    say('No match');
+    return;
+  }
+  const entries = DATA[streetKey];
+  const groups = entries.map(e => e.section + " " + e.range).join(", ");
+  why.style.display = 'block';
+  why.innerHTML = "<span class='k'>Street found</span> but number is outside known ranges. Available: " + groups;
+  say('No match');
 }
 
+function handleQuery(txt) {
+  why.style.display = 'none';
+  heard.textContent = txt || '';
+  const norm = normalizeAddress(txt || '');
+  parsed.textContent = norm.display;
+  const sec = lookupSection(norm.number, norm.streetKey);
+  if (sec) {
+    result.textContent = sec;
+    result.className = 'big ok';
+    say(sec);
+  } else {
+    result.textContent = 'No match';
+    result.className = 'big err';
+    showNoMatch(norm.streetKey, norm.number);
+  }
+}
+
+// ===== Voice =====
 function startListening() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { alert('Speech recognition not supported here. Use the text box, or open in Safari.'); return; }
+  if (!SR) { alert('Speech recognition not supported here. Use Safari or the text box.'); return; }
   const rec = new SR();
   rec.lang = 'en-US';
   rec.interimResults = false;
   rec.maxAlternatives = 1;
   rec.onresult = (e) => { const txt = e.results[0][0].transcript; handleQuery(txt); };
   rec.onerror = () => { result.textContent = 'Mic error'; result.className = 'big err'; };
-  rec.onend = () => { btn.disabled = false; btn.textContent = '🎙️ Tap to Speak'; };
+  rec.onend = () => { btn.disabled = false; btn.textContent = '🎙️ Speak'; };
   btn.disabled = true; btn.textContent = 'Listening…';
   rec.start();
 }
 
-enableBtn.addEventListener('click', enableVoice);
-btn.addEventListener('click', startListening);
-go.addEventListener('click', () => handleQuery(manual.value));
+// ===== OCR (Camera + Tesseract.js) =====
+const scanBtn = document.getElementById('scan');
+const vidwrap = document.getElementById('vidwrap');
+const video = document.getElementById('video');
+const bbox = document.getElementById('bbox');
+const snap = document.getElementById('snap');
+const closeCam = document.getElementById('closeCam');
+const canvas = document.getElementById('canvas');
+let stream = null;
+
+async function openCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    video.srcObject = stream;
+    await video.play();
+    vidwrap.style.display = 'block';
+  } catch (e) {
+    alert('Camera access failed. Make sure you are on HTTPS (GitHub Pages) and allow camera permission.');
+  }
+}
+function closeCamera() {
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+  vidwrap.style.display = 'none';
+}
+
+async function ocrCapture() {
+  // draw frame to canvas and crop to bbox
+  const rect = video.getBoundingClientRect();
+  const box = bbox.getBoundingClientRect();
+  const scaleX = video.videoWidth / rect.width;
+  const scaleY = video.videoHeight / rect.height;
+  const sx = (box.left - rect.left) * scaleX;
+  const sy = (box.top - rect.top) * scaleY;
+  const sw = box.width * scaleX;
+  const sh = box.height * scaleY;
+
+  canvas.width = sw;
+  canvas.height = sh;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+
+  try {
+    const { data: { text } } = await Tesseract.recognize(canvas, 'eng', { logger: m => {/* console.log(m) */} });
+    // Try to pick the most address-looking line (has a number and a street token)
+    const lines = text.split(/\n+/).map(x => x.trim()).filter(Boolean);
+    let best = "";
+    for (const ln of lines) {
+      if (/\b\d+\b/.test(ln) && /(st\b|street\b|ave\b|avenue\b)/i.test(ln)) { best = ln; break; }
+    }
+    const candidate = best || lines[0] || "";
+    manual.value = candidate;
+    handleQuery(candidate);
+  } catch (e) {
+    alert('OCR failed. Try better lighting and center the address inside the box.');
+  }
+}
+
+document.getElementById('enable').addEventListener('click', enableVoice);
+document.getElementById('talk').addEventListener('click', startListening);
+document.getElementById('go').addEventListener('click', () => handleQuery(manual.value));
+scanBtn.addEventListener('click', openCamera);
+closeCam.addEventListener('click', closeCamera);
+snap.addEventListener('click', ocrCapture);
 </script>
 </body>
 </html>
