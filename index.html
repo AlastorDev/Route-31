@@ -61,7 +61,11 @@
 
 <script>
 window.addEventListener('DOMContentLoaded', () => {
-  const BROWSER_SECURE = location.protocol === 'https:' || location.hostname === 'localhost';
+  
+// === Cloud OCR toggle ===
+const USE_CLOUD_OCR = true;  // set false to disable
+const CLOUD_OCR_ENDPOINT = "https://ocr-proxy-seven.vercel.app/api/ocr";
+const BROWSER_SECURE = location.protocol === 'https:' || location.hostname === 'localhost';
   const banner = document.getElementById('banner');
   function warn(msg) { banner.textContent = msg; banner.style.display = 'block'; }
   if (!BROWSER_SECURE) { warn('Open this page via HTTPS or localhost. Browsers block mic/camera on file:// or http://.'); }
@@ -280,7 +284,17 @@ window.addEventListener('DOMContentLoaded', () => {
     ctx.putImageData(img,0,0);
   }
 
-  async function frameLoop() {
+  
+async function cloudOCR(dataUrl) {
+  const res = await fetch(CLOUD_OCR_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image: dataUrl })
+  });
+  const out = await res.json().catch(() => ({}));
+  return (out && out.text) ? out.text : "";
+}
+async function frameLoop() {
     if (!scanning) return;
     const rect = video.getBoundingClientRect();
     const box = bbox.getBoundingClientRect();
@@ -313,7 +327,17 @@ window.addEventListener('DOMContentLoaded', () => {
         let candidate = "";
         for (const ln of lines) { if (/\b\d+\b/.test(ln) && /(st\b|street\b|ave\b|avenue\b)/i.test(ln)) { candidate = ln; break; } }
         candidate = candidate || lines[0] || "";
-        if (candidate) { const ok = handleQuery(candidate); if (ok) { stopAutoScan(); return; } }
+        if (candidate) { const ok = handleQuery(candidate); if (ok) { stopAutoScan(); return; }
+    // If local OCR didn't match, try cloud handwriting OCR
+    if (USE_CLOUD_OCR) {
+      const dataUrl = canvas.toDataURL("image/png");
+      const cloudText = await cloudOCR(dataUrl);
+      if (cloudText && cloudText.trim()) {
+        const ok2 = handleQuery(cloudText);
+        if (ok2) { stopAutoScan(); return; }
+      }
+    }
+ }
       } catch (e) { warn('OCR error (try HTTPS / better lighting).'); }
     }
     raf = requestAnimationFrame(frameLoop);
