@@ -4,12 +4,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>R31 Section Finder — v4.1 (Voice + OCR)</title>
+  <title>R31 Section Finder — v4.2 FULL (Voice + Auto‑Scan OCR)</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 16px; }
     .card { max-width: 940px; margin: 0 auto; padding: 16px; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.08); }
     h1 { font-size: 20px; margin: 0 0 12px; }
-    .btn { padding: 12px 14px; border-radius: 12px; border: 0; background: #0ea5e9; color: white; font-size: 16px; }
+    .btn { padding: 12px 14px; border-radius: 12px; border: 0; background: #0ea5e9; color: white; font-size: 16px; cursor:pointer; }
     .btn.secondary { background: #10b981; }
     .row { margin-top: 10px; font-size: 14px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .label { color: #334155; min-width:70px; }
@@ -23,23 +23,25 @@
     .bar { display:flex; gap:8px; flex-wrap:wrap; }
     .box { background:#f8fafc; border:1px solid #e2e8f0; padding:10px; border-radius:8px; margin-top:10px; font-size:13px; }
     .k { font-weight:600; color:#0f172a; }
-    /* Camera overlay */
     .vidwrap { position: relative; display:none; margin-top:10px; }
     video, canvas { max-width: 100%; width: 100%; border-radius: 8px; }
     .bbox { position:absolute; border:3px dashed #0ea5e9; box-shadow: 0 0 0 9999px rgba(0,0,0,.25) inset; }
+    .status { font-size:12px; color:#475569; margin-top:6px; }
+    .banner { background:#fff3cd; border:1px solid #ffe58f; padding:8px 10px; border-radius:8px; margin-bottom:10px; font-size:13px; display:none; }
   </style>
-  <!-- Tesseract.js for OCR (requires HTTPS when hosted) -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
 <body>
   <div class="card">
-    <h1>R31 Section Finder — v4.1 (Voice + OCR)</h1>
+    <div id="banner" class="banner"></div>
+    <h1>R31 Section Finder — v4.2 FULL (Voice + Auto‑Scan OCR)</h1>
     <div class="bar">
       <button id="enable" class="btn">🔊 Enable Voice (iPhone)</button>
       <button id="talk" class="btn secondary">🎙️ Speak</button>
       <input id="manual" type="text" placeholder="Or type: e.g., 991 4th Ave" />
       <button id="go" class="btn secondary">Find Section</button>
-      <button id="scan" class="btn" style="background:#6366f1">📷 Scan Address (OCR)</button>
+      <button id="openCam" class="btn" style="background:#6366f1">📷 Start Auto‑Scan</button>
+      <button id="stopCam" class="btn" style="background:#ef4444; display:none;">✖ Stop</button>
       <select id="voiceSel"><option value="">Default Voice</option></select>
     </div>
     <div class="row"><span class="label">Heard:</span> <span id="heard" class="out"></span></div>
@@ -50,269 +52,298 @@
     <div class="vidwrap" id="vidwrap">
       <video id="video" playsinline></video>
       <div class="bbox" id="bbox" style="left:10%; top:25%; width:80%; height:35%;"></div>
-      <div class="bar" style="margin-top:8px;">
-        <button id="snap" class="btn secondary">📸 Capture</button>
-        <button id="closeCam" class="btn" style="background:#ef4444">✖ Close</button>
-      </div>
+      <div class="status" id="status">Align the delivery address in the box. I’ll capture automatically once it’s steady.</div>
       <canvas id="canvas" style="display:none;"></canvas>
     </div>
 
-    <div class="muted">Tip: For OCR, center the delivery address inside the dashed box. Printed labels work best. Handwritten may require a steady shot & good lighting.</div>
+    <div class="muted">This build includes ALL case card ranges. If a number is outside the known range, you’ll see the available ranges for that street.</div>
   </div>
 
 <script>
-const DATA = {"W Brewster St": [{"section": "A1", "range": "109-130"}], "E Allen St": [{"section": "A1", "range": "101"}], "W Allen St": [{"section": "A1", "range": "105-116"}], "River Ave N": [{"section": "A1", "range": "201-720"}, {"section": "A3", "range": "510"}, {"section": "B1", "range": "711-719"}], "8 ¾ St": [{"section": "A1", "range": "275-299"}, {"section": "B1", "range": "301-383"}, {"section": "C2", "range": "474-490"}], "3 ½ Ave": [{"section": "A2", "range": "1112-1128"}, {"section": "C1", "range": "1168-1210"}], "4th Ave": [{"section": "A2", "range": "1003-1065"}, {"section": "B2", "range": "820-991"}], "5th Ave": [{"section": "B2", "range": "873-896"}, {"section": "A2", "range": "1002-1128"}, {"section": "A3", "range": "655-803"}, {"section": "C1", "range": "1175-1264"}], "11th St": [{"section": "A2", "range": "348-540"}, {"section": "B1", "range": "154"}, {"section": "C1", "range": "556-565"}], "11 ¼ St": [{"section": "A2", "range": "321-323"}, {"section": "B2", "range": "301-302"}], "10th St": [{"section": "B2", "range": "279-378"}, {"section": "B1", "range": "159-243"}, {"section": "A2", "range": "473"}], "5 ½ Ave": [{"section": "A3", "range": "611-654"}], "6th Ave": [{"section": "A3", "range": "765"}, {"section": "C1", "range": "1064-1287"}], "7th St": [{"section": "A3", "range": "554-677"}, {"section": "A5", "range": "108-137"}, {"section": "B3", "range": "291-306"}, {"section": "C4", "range": "154-244"}], "7 ½ St": [{"section": "A3", "range": "535-606"}, {"section": "A5", "range": "18-72"}, {"section": "B3", "range": "352-471"}, {"section": "C2", "range": "689"}], "6th St": [{"section": "A3", "range": "587"}, {"section": "C4", "range": "82-181"}], "Barron Dunn Ave": [{"section": "A4", "range": "624-736"}], "½ Ave": [{"section": "A4", "range": "529-565"}, {"section": "C3", "range": "405-430"}], "290th St": [{"section": "A4", "range": "14227-14450"}, {"section": "B4", "range": "14158"}], "1430th Ave": [{"section": "A4", "range": "3035-3200"}], "1440th Ave": [{"section": "C4", "range": "1627-1795"}, {"section": "A4", "range": "2577-2654"}], "1450th Ave": [{"section": "A4", "range": "2414-2696"}], "1st Ave": [{"section": "C4", "range": "624-650"}, {"section": "A5", "range": "701-798"}], "1 ½ Ave": [{"section": "C4", "range": "545-588"}, {"section": "A5", "range": "770-771"}], "8 ¼ St": [{"section": "A5", "range": "27-109"}], "Waite St": [{"section": "B1", "range": "610-701"}], "2 ½ Ave": [{"section": "B1", "range": "917-959"}, {"section": "B2", "range": "1035-1166"}], "8 ½ St": [{"section": "B1", "range": "214"}], "9th St": [{"section": "B1", "range": "301-302"}, {"section": "B2", "range": "361-384"}, {"section": "C2", "range": "519-723"}], "12th St": [{"section": "B1", "range": "237-337"}, {"section": "C1", "range": "328-570"}], "8 ¾ – 9th St": [{"section": "B2", "range": "488"}], "3-2 ¾ Ave": [{"section": "B3", "range": "595-825"}], "3rd Ave": [{"section": "B3", "range": "543-552"}], "5th St": [{"section": "B3", "range": "281-312"}, {"section": "C3", "range": "64-208"}], "6 ½ St": [{"section": "B3", "range": "353-381"}], "6-6 ¼ St": [{"section": "B3", "range": "352-606"}], "Cty Rd V": [{"section": "B4", "range": "1955-3501"}, {"section": "B4", "range": "13854-14065"}], "190th St": [{"section": "B4", "range": "14255"}, {"section": "B4", "range": "14377"}], "250th St": [{"section": "B4", "range": "13859-13954"}], "1390th Ave": [{"section": "B4", "range": "1582-1765"}], "1410th Ave": [{"section": "B4", "range": "1875"}], "1420th Ave": [{"section": "B4", "range": "2895"}], "5th Ave (C1)": [{"section": "C1", "range": "1175-1264"}], "6th Ave (C1)": [{"section": "C1", "range": "1064-1287"}], "3 ½ Ave (C1)": [{"section": "C1", "range": "1168-1210"}], "11th St (C1)": [{"section": "C1", "range": "556-565"}], "12th St (C1)": [{"section": "C1", "range": "328-570"}], "12 ¼ St (C1)": [{"section": "C1", "range": "447-481"}], "13th St": [{"section": "C1", "range": "530"}], "6 ½ Ave": [{"section": "C2", "range": "790-871"}], "7th Ave": [{"section": "C2", "range": "715-880"}], "2nd Ave": [{"section": "C3", "range": "394-503"}, {"section": "C4", "range": "567-714"}], "4th St": [{"section": "C3", "range": "21-179"}], "5th St (C3)": [{"section": "C3", "range": "64-208"}], "2nd Ave (C4)": [{"section": "C4", "range": "567-714"}], "4 ¾ St": [{"section": "C4", "range": "13-35"}], "6th St (C4)": [{"section": "C4", "range": "82-181"}], "7th St (C4)": [{"section": "C4", "range": "154-244"}]};
+window.addEventListener('DOMContentLoaded', () => {
+  const BROWSER_SECURE = location.protocol === 'https:' || location.hostname === 'localhost';
+  const banner = document.getElementById('banner');
+  function warn(msg) { banner.textContent = msg; banner.style.display = 'block'; }
+  if (!BROWSER_SECURE) { warn('Open this page via HTTPS or localhost. Browsers block mic/camera on file:// or http://.'); }
 
-// ===== TTS (iPhone unlock) =====
-let voices = [];
-let speakEnabled = false;
-function refreshVoices() {
-  voices = speechSynthesis.getVoices() || [];
-  const sel = document.getElementById('voiceSel');
-  const prev = sel.value;
-  sel.innerHTML = '<option value="">Default Voice</option>' + voices
-    .filter(v => v.lang && v.lang.toLowerCase().startsWith('en'))
-    .map((v,i) => `<option value="${i}">${v.name} (${v.lang})</option>`)
-    .join('');
-  sel.value = prev;
-}
-if ('speechSynthesis' in window) {
-  refreshVoices();
-  window.speechSynthesis.onvoiceschanged = refreshVoices;
-}
-function say(text) {
-  try {
-    if (!speakEnabled) return;
-    const u = new SpeechSynthesisUtterance(text);
-    const sel = document.getElementById('voiceSel');
-    const idx = parseInt(sel.value, 10);
-    if (!isNaN(idx) && voices[idx]) u.voice = voices[idx];
-    u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
-    speechSynthesis.cancel();
-    speechSynthesis.speak(u);
-  } catch(e) {}
-}
-function enableVoice() {
-  try {
-    const u = new SpeechSynthesisUtterance('Ready');
-    speechSynthesis.cancel();
-    speechSynthesis.speak(u);
-    speakEnabled = true;
-    document.getElementById('enable').textContent = '🔊 Voice Enabled';
-  } catch(e) { console.log(e); }
-}
+  const DATA = {"W Brewster St": [{"section": "A1", "range": "109-130"}], "E Allen St": [{"section": "A1", "range": "101"}], "W Allen St": [{"section": "A1", "range": "105-116"}], "River Ave N": [{"section": "A1", "range": "201-720"}, {"section": "A3", "range": "510"}, {"section": "B1", "range": "711-719"}], "8 ¾ St": [{"section": "A1", "range": "275-299"}, {"section": "B1", "range": "301-383"}, {"section": "C2", "range": "474-490"}], "3 ½ Ave": [{"section": "A2", "range": "1112-1128"}, {"section": "C1", "range": "1168-1210"}], "4th Ave": [{"section": "A2", "range": "1003-1065"}, {"section": "B2", "range": "820-991"}], "5th Ave": [{"section": "A2", "range": "1002-1128"}, {"section": "A3", "range": "655-803"}, {"section": "B2", "range": "873-896"}, {"section": "C1", "range": "1175-1264"}], "11th St": [{"section": "A2", "range": "348-540"}, {"section": "B1", "range": "154"}, {"section": "C1", "range": "556-565"}], "11 ¼ St": [{"section": "A2", "range": "321-323"}, {"section": "B2", "range": "301-302"}], "10th St": [{"section": "A2", "range": "473"}, {"section": "B1", "range": "159-243"}, {"section": "B2", "range": "279-378"}], "5 ½ Ave": [{"section": "A3", "range": "611-654"}], "6th Ave": [{"section": "A3", "range": "765"}, {"section": "C1", "range": "1064-1287"}], "7th St": [{"section": "A3", "range": "554-677"}, {"section": "A5", "range": "108-137"}, {"section": "B3", "range": "291-306"}, {"section": "C4", "range": "154-244"}], "7 ½ St": [{"section": "A3", "range": "535-606"}, {"section": "A5", "range": "18-72"}, {"section": "B3", "range": "352-471"}, {"section": "C2", "range": "689"}], "6th St": [{"section": "A3", "range": "587"}, {"section": "C4", "range": "82-181"}], "Barron Dunn Ave": [{"section": "A4", "range": "624-736"}], "½ Ave": [{"section": "A4", "range": "529-565"}, {"section": "C3", "range": "405-430"}], "290th St": [{"section": "A4", "range": "14227-14450"}, {"section": "B4", "range": "14158"}], "1430th Ave": [{"section": "A4", "range": "3035-3200"}], "1440th Ave": [{"section": "C4", "range": "1627-1795"}, {"section": "A4", "range": "2577-2654"}], "1450th Ave": [{"section": "A4", "range": "2414-2696"}], "1st Ave": [{"section": "A5", "range": "701-798"}, {"section": "C4", "range": "624-650"}], "1 ½ Ave": [{"section": "A5", "range": "770-771"}, {"section": "C4", "range": "545-588"}], "8 ¼ St": [{"section": "A5", "range": "27-109"}], "Waite St": [{"section": "B1", "range": "610-701"}], "2 ½ Ave": [{"section": "B1", "range": "917-959"}, {"section": "B2", "range": "1035-1166"}], "8 ½ St": [{"section": "B1", "range": "214"}], "9th St": [{"section": "B1", "range": "301-302"}, {"section": "B2", "range": "361-384"}, {"section": "C2", "range": "519-723"}], "10th St (B1)": [{"section": "B1", "range": "159-243"}], "11th St (B1)": [{"section": "B1", "range": "154"}], "12th St": [{"section": "B1", "range": "237-337"}, {"section": "C1", "range": "328-570"}], "2 ½ Ave (B2)": [{"section": "B2", "range": "1035-1166"}], "4th Ave (B2)": [{"section": "B2", "range": "820-991"}], "5th Ave (B2)": [{"section": "B2", "range": "873-896"}], "8 ¾ – 9th St": [{"section": "B2", "range": "488"}], "9th St (B2)": [{"section": "B2", "range": "361-384"}], "10th St (B2)": [{"section": "B2", "range": "279-378"}], "11 ¼ St (B2)": [{"section": "B2", "range": "301-302"}], "3-2 ¾ Ave": [{"section": "B3", "range": "595-825"}], "3rd Ave": [{"section": "B3", "range": "543-552"}], "5th St": [{"section": "B3", "range": "281-312"}, {"section": "C3", "range": "64-208"}], "6 ½ St": [{"section": "B3", "range": "353-381"}], "6-6 ¼ St": [{"section": "B3", "range": "352-606"}], "7th St (B3)": [{"section": "B3", "range": "291-306"}], "7 ½ St (B3)": [{"section": "B3", "range": "352-471"}], "Cty Rd V": [{"section": "B4", "range": "1955-3501"}, {"section": "B4", "range": "13854-14065"}], "190th St": [{"section": "B4", "range": "14255"}, {"section": "B4", "range": "14377"}], "250th St": [{"section": "B4", "range": "13859-13954"}], "290th St (B4)": [{"section": "B4", "range": "14158"}], "1390th Ave": [{"section": "B4", "range": "1582-1765"}], "1410th Ave": [{"section": "B4", "range": "1875"}], "1420th Ave": [{"section": "B4", "range": "2895"}], "5th Ave (C1)": [{"section": "C1", "range": "1175-1264"}], "6th Ave (C1)": [{"section": "C1", "range": "1064-1287"}], "3 ½ Ave (C1)": [{"section": "C1", "range": "1168-1210"}], "11th St (C1)": [{"section": "C1", "range": "556-565"}], "12th St (C1)": [{"section": "C1", "range": "328-570"}], "12 ¼ St (C1)": [{"section": "C1", "range": "447-481"}], "13th St": [{"section": "C1", "range": "530"}], "6 ½ Ave": [{"section": "C2", "range": "790-871"}], "7th Ave": [{"section": "C2", "range": "715-880"}], "8 ¾ St (C2)": [{"section": "C2", "range": "474-490"}], "9th St (C2)": [{"section": "C2", "range": "519-723"}], "7 ½ St (C2)": [{"section": "C2", "range": "689"}], "½ Ave (C3)": [{"section": "C3", "range": "405-430"}], "2nd Ave": [{"section": "C3", "range": "394-503"}, {"section": "C4", "range": "567-714"}], "4th St": [{"section": "C3", "range": "21-179"}], "5th St (C3)": [{"section": "C3", "range": "64-208"}], "1st Ave (C4)": [{"section": "C4", "range": "624-650"}], "1 ½ Ave (C4)": [{"section": "C4", "range": "545-588"}], "2nd Ave (C4)": [{"section": "C4", "range": "567-714"}], "4 ¾ St": [{"section": "C4", "range": "13-35"}], "6th St (C4)": [{"section": "C4", "range": "82-181"}], "7th St (C4)": [{"section": "C4", "range": "154-244"}]};
 
-// ===== Parsing helpers =====
-function canonKey(s) {
-  s = s.toLowerCase().trim();
-  s = s.replace(/[\.,]/g,"");
-  s = s.replace(/\bavenue\b/g,"ave").replace(/\bstreet\b/g,"st");
-  s = s.replace(/\bnorth\b/g,"n").replace(/\bsouth\b/g,"s").replace(/\beast\b/g,"e").replace(/\bwest\b/g,"w");
-  s = s.replace(/\s+/g," ");
-  return s;
-}
-// Map canonical to display key
-const KEY_MAP = {};
-for (const name in DATA) { KEY_MAP[canonKey(name)] = name; }
-
-function normalizeAddress(input) {
-  let s = (input || "").toLowerCase().trim();
-
-  // Strong fraction normalization (handles hyphens and "and a half" forms)
-  // Convert things like "6-1/2 st", "6 1/2 st", "6 and a half st"
-  s = s.replace(/(\d+)\s*(?:-|\s)\s*1\s*\/\s*2\b/g, "$1 1/2");
-  s = s.replace(/(\d+)\s*(?:-|\s)\s*3\s*\/\s*4\b/g, "$1 3/4");
-  s = s.replace(/(\d+)\s+and\s+a\s+half\b/g, "$1 1/2");
-  s = s.replace(/(\d+)\s+and\s+(?:three\s+quarters|3\s*\/\s*4)\b/g, "$1 3/4");
-
-  // Words → digits (0–12 for safety)
-  const words = {"zero":0,"one":1,"two":2,"three":3,"four":4,"five":5,"six":6,"seven":7,"eight":8,"nine":9,"ten":10,"eleven":11,"twelve":12};
-  s = s.replace(/\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/g, m => words[m]);
-
-  // Ordinals
-  s = s.replace(/\bfourth\b/g,"4th").replace(/\bfifth\b/g,"5th").replace(/\bsixth\b/g,"6th")
-       .replace(/\bseventh\b/g,"7th").replace(/\beighth\b/g,"8th").replace(/\bninth\b/g,"9th")
-       .replace(/\btenth\b/g,"10th").replace(/\beleventh\b/g,"11th").replace(/\btwelfth\b/g,"12th")
-       .replace(/\bfirst\b/g,"1st").replace(/\bsecond\b/g,"2nd").replace(/\bthird\b/g,"3rd");
-
-  // Fractions unify to unicode in our dataset for street names like "6 ½ St", "8 ¾ St"
-  s = s.replace(/\b1\s*\/\s*2\b/g, "½");
-  s = s.replace(/\b1\s*\/\s*4\b/g, "¼");
-  s = s.replace(/\b3\s*\/\s*4\b/g, "¾");
-
-  // Abbreviations
-  s = s.replace(/\bavenue\b|\bave\.?\b/g, "ave");
-  s = s.replace(/\bstreet\b|\bst\.?\b/g, "st");
-  s = s.replace(/\bnorth\b|\bn\b/g, "n").replace(/\bwest\b|\bw\b/g, "w")
-       .replace(/\beast\b|\be\b/g, "e").replace(/\bsouth\b|\bs\b/g, "s");
-
-  s = s.replace(/\s+/g," ").trim();
-
-  // Extract house number
-  const m = s.match(/^(\d+)\s+(.*)$/);
-  let num = null, rest = s;
-  if (m) { num = parseInt(m[1],10); rest = m[2]; }
-
-  // Canonical key for matching, and display string
-  const key = canonKey(rest);
-  const streetKey = KEY_MAP[key] || null;
-  const display = (num ? num+' ' : '') + rest.split(" ").map(w=>w[0]?w[0].toUpperCase()+w.slice(1):w).join(" ");
-  return { number:num, streetKey, display };
-}
-
-function inRange(num, rangeStr) {
-  if (!rangeStr) return false;
-  const clean = rangeStr.replace(/[^0-9\-]/g,"");
-  if (!clean) return false;
-  if (clean.includes("-")) {
-    const [a,b] = clean.split("-").map(x=>parseInt(x,10));
-    if (isNaN(a) || isNaN(b)) return false;
-    return num >= a && num <= b;
-  } else {
-    const v = parseInt(clean,10);
-    return num === v;
+  // ===== TTS =====
+  let voices = [];
+  let speakEnabled = false;
+  function refreshVoices() {
+    try {
+      voices = speechSynthesis.getVoices() || [];
+      const sel = document.getElementById('voiceSel');
+      const prev = sel.value;
+      sel.innerHTML = '<option value="">Default Voice</option>' + voices
+        .filter(v => v.lang && v.lang.toLowerCase().startsWith('en'))
+        .map((v,i) => `<option value="${i}">${v.name} (${v.lang})</option>`)
+        .join('');
+      sel.value = prev;
+    } catch(e) { }
   }
-}
+  if ('speechSynthesis' in window) {
+    refreshVoices();
+    window.speechSynthesis.onvoiceschanged = refreshVoices;
+  }
+  function say(text) {
+    try {
+      if (!speakEnabled) return;
+      const u = new SpeechSynthesisUtterance(text);
+      const sel = document.getElementById('voiceSel');
+      const idx = parseInt(sel.value, 10);
+      if (!isNaN(idx) && voices[idx]) u.voice = voices[idx];
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
+    } catch(e) { }
+  }
+  document.getElementById('enable').addEventListener('click', () => {
+    try {
+      const u = new SpeechSynthesisUtterance('Ready');
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
+      speakEnabled = true;
+      document.getElementById('enable').textContent = '🔊 Voice Enabled';
+    } catch(e) { console.log(e); }
+  });
 
-function lookupSection(number, streetKey) {
-  if (!streetKey) return null;
-  const entries = DATA[streetKey];
-  let best = null, bestWidth = Infinity;
-  for (const e of entries) {
-    if (number == null) continue;
-    if (inRange(number, e.range)) {
-      let width = 999999;
-      const cl = e.range.replace(/[^0-9\-]/g,"");
-      if (cl.includes("-")) { const [a,b]=cl.split("-").map(n=>parseInt(n,10)); width = Math.abs(b-a); }
-      else { width = 0; }
-      if (width < bestWidth) { best = e.section; bestWidth = width; }
+  // ===== Parsing helpers =====
+  function canonKey(s) {
+    s = (s||'').toLowerCase().trim();
+    s = s.replace(/[\.,]/g,"");
+    s = s.replace(/\bavenue\b/g,"ave").replace(/\bstreet\b/g,"st");
+    s = s.replace(/\bnorth\b/g,"n").replace(/\bsouth\b/g,"s").replace(/\beast\b/g,"e").replace(/\bwest\b/g,"w");
+    s = s.replace(/\s+/g," ");
+    return s;
+  }
+  const KEY_MAP = {};
+  for (const name in DATA) { KEY_MAP[canonKey(name)] = name; }
+
+  function normalizeAddress(input) {
+    let s = (input || "").toLowerCase().trim();
+
+    // Strong fraction normalization
+    s = s.replace(/(\d+)\s*(?:-|\s)\s*1\s*\/\s*2\b/g, "$1 1/2");
+    s = s.replace(/(\d+)\s*(?:-|\s)\s*3\s*\/\s*4\b/g, "$1 3/4");
+    s = s.replace(/(\d+)\s+and\s+a\s+half\b/g, "$1 1/2");
+    s = s.replace(/(\d+)\s+and\s+(?:three\s+quarters|3\s*\/\s*4)\b/g, "$1 3/4");
+
+    // Words → digits (0–12)
+    const words = {zero:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12};
+    s = s.replace(/\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/g, m => words[m]);
+
+    // Ordinals
+    s = s.replace(/\bfourth\b/g,"4th").replace(/\bfifth\b/g,"5th").replace(/\bsixth\b/g,"6th")
+         .replace(/\bseventh\b/g,"7th").replace(/\beighth\b/g,"8th").replace(/\bninth\b/g,"9th")
+         .replace(/\btenth\b/g,"10th").replace(/\beleventh\b/g,"11th").replace(/\btwelfth\b/g,"12th")
+         .replace(/\bfirst\b/g,"1st").replace(/\bsecond\b/g,"2nd").replace(/\bthird\b/g,"3rd");
+
+    // Fractions → unicode
+    s = s.replace(/\b1\s*\/\s*2\b/g, "½");
+    s = s.replace(/\b1\s*\/\s*4\b/g, "¼");
+    s = s.replace(/\b3\s*\/\s*4\b/g, "¾");
+
+    // Abbreviations
+    s = s.replace(/\bavenue\b|\bave\.?\b/g, "ave");
+    s = s.replace(/\bstreet\b|\bst\.?\b/g, "st");
+    s = s.replace(/\bnorth\b|\bn\b/g, "n").replace(/\bwest\b|\bw\b/g, "w")
+         .replace(/\beast\b|\be\b/g, "e").replace(/\bsouth\b|\bs\b/g, "s");
+
+    s = s.replace(/\s+/g," ").trim();
+
+    const m = s.match(/^(\d+)\s+(.*)$/);
+    let num = null, rest = s;
+    if (m) { num = parseInt(m[1],10); rest = m[2]; }
+
+    const key = canonKey(rest);
+    const streetKey = KEY_MAP[key] || null;
+    const display = (num ? num+' ' : '') + rest.split(" ").map(w=>w[0]?w[0].toUpperCase()+w.slice(1):w).join(" ");
+    return { number:num, streetKey, display };
+  }
+
+  function inRange(num, rangeStr) {
+    if (!rangeStr) return false;
+    const clean = rangeStr.replace(/[^0-9\-]/g,"");
+    if (!clean) return false;
+    if (clean.includes("-")) {
+      const [a,b] = clean.split("-").map(x=>parseInt(x,10));
+      if (isNaN(a) || isNaN(b)) return false;
+      return num >= a && num <= b;
+    } else {
+      const v = parseInt(clean,10);
+      return num === v;
     }
   }
-  if (!best && entries.length === 1) best = entries[0].section;
-  return best;
-}
 
-const heard = document.getElementById('heard');
-const parsed = document.getElementById('parsed');
-const result = document.getElementById('result');
-const why = document.getElementById('why');
-const btn = document.getElementById('talk');
-const manual = document.getElementById('manual');
-const go = document.getElementById('go');
-const enableBtn = document.getElementById('enable');
+  function lookupSection(number, streetKey) {
+    if (!streetKey) return null;
+    const entries = DATA[streetKey];
+    let best = null, bestWidth = Infinity;
+    for (const e of entries) {
+      if (number == null) continue;
+      if (inRange(number, e.range)) {
+        let width = 999999;
+        const cl = e.range.replace(/[^0-9\-]/g,"");
+        if (cl.includes("-")) { const [a,b]=cl.split("-").map(n=>parseInt(n,10)); width = Math.abs(b-a); }
+        else { width = 0; }
+        if (width < bestWidth) { best = e.section; bestWidth = width; }
+      }
+    }
+    if (!best && entries.length === 1) best = entries[0].section;
+    return best;
+  }
 
-function showNoMatch(streetKey, number) {
-  if (!streetKey) {
+  const heard = document.getElementById('heard');
+  const parsed = document.getElementById('parsed');
+  const result = document.getElementById('result');
+  const why = document.getElementById('why');
+  const btn = document.getElementById('talk');
+  const manual = document.getElementById('manual');
+  const go = document.getElementById('go');
+
+  function showNoMatch(streetKey, number) {
+    if (!streetKey) {
+      why.style.display = 'block';
+      why.innerHTML = "Street not in case cards. Check spelling (St/Ave) and direction (N/W). For fraction streets try: ‘6 1/2 St’ or ‘6-1/2 St’.";
+      say('No match');
+      return;
+    }
+    const entries = DATA[streetKey];
+    const groups = entries.map(e => e.section + " " + e.range).join(", ");
     why.style.display = 'block';
-    why.innerHTML = "Street not in case cards. Check spelling (St/Ave) and direction (N/W). For fraction streets try formats like ‘6 1/2 St’ or ‘6-1/2 St’.";
+    why.innerHTML = "<span class='k'>Street found</span> but number is outside known ranges. Available: " + groups;
     say('No match');
-    return;
   }
-  const entries = DATA[streetKey];
-  const groups = entries.map(e => e.section + " " + e.range).join(", ");
-  why.style.display = 'block';
-  why.innerHTML = "<span class='k'>Street found</span> but number is outside known ranges. Available: " + groups;
-  say('No match');
-}
 
-function handleQuery(txt) {
-  why.style.display = 'none';
-  heard.textContent = txt || '';
-  const norm = normalizeAddress(txt || '');
-  parsed.textContent = norm.display;
-  const sec = lookupSection(norm.number, norm.streetKey);
-  if (sec) {
-    result.textContent = sec;
-    result.className = 'big ok';
-    say(sec);
-  } else {
-    result.textContent = 'No match';
-    result.className = 'big err';
-    showNoMatch(norm.streetKey, norm.number);
-  }
-}
-
-// ===== Voice =====
-function startListening() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { alert('Speech recognition not supported here. Use Safari or the text box.'); return; }
-  const rec = new SR();
-  rec.lang = 'en-US';
-  rec.interimResults = false;
-  rec.maxAlternatives = 1;
-  rec.onresult = (e) => { const txt = e.results[0][0].transcript; handleQuery(txt); };
-  rec.onerror = () => { result.textContent = 'Mic error'; result.className = 'big err'; };
-  rec.onend = () => { btn.disabled = false; btn.textContent = '🎙️ Speak'; };
-  btn.disabled = true; btn.textContent = 'Listening…';
-  rec.start();
-}
-
-// ===== OCR (Camera + Tesseract.js) =====
-const scanBtn = document.getElementById('scan');
-const vidwrap = document.getElementById('vidwrap');
-const video = document.getElementById('video');
-const bbox = document.getElementById('bbox');
-const snap = document.getElementById('snap');
-const closeCam = document.getElementById('closeCam');
-const canvas = document.getElementById('canvas');
-let stream = null;
-
-async function openCamera() {
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-    video.srcObject = stream;
-    await video.play();
-    vidwrap.style.display = 'block';
-  } catch (e) {
-    alert('Camera access failed. Make sure you are on HTTPS (GitHub Pages) and allow camera permission.');
-  }
-}
-function closeCamera() {
-  if (stream) {
-    stream.getTracks().forEach(t => t.stop());
-    stream = null;
-  }
-  vidwrap.style.display = 'none';
-}
-
-async function ocrCapture() {
-  // draw frame to canvas and crop to bbox
-  const rect = video.getBoundingClientRect();
-  const box = bbox.getBoundingClientRect();
-  const scaleX = video.videoWidth / rect.width;
-  const scaleY = video.videoHeight / rect.height;
-  const sx = (box.left - rect.left) * scaleX;
-  const sy = (box.top - rect.top) * scaleY;
-  const sw = box.width * scaleX;
-  const sh = box.height * scaleY;
-
-  canvas.width = sw;
-  canvas.height = sh;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
-
-  try {
-    const { data: { text } } = await Tesseract.recognize(canvas, 'eng', { logger: m => {/* console.log(m) */} });
-    // Try to pick the most address-looking line (has a number and a street token)
-    const lines = text.split(/\n+/).map(x => x.trim()).filter(Boolean);
-    let best = "";
-    for (const ln of lines) {
-      if (/\b\d+\b/.test(ln) && /(st\b|street\b|ave\b|avenue\b)/i.test(ln)) { best = ln; break; }
+  function handleQuery(txt) {
+    why.style.display = 'none';
+    heard.textContent = txt || '';
+    const norm = normalizeAddress(txt || '');
+    parsed.textContent = norm.display;
+    const sec = lookupSection(norm.number, norm.streetKey);
+    if (sec) {
+      result.textContent = sec;
+      result.className = 'big ok';
+      say(sec);
+      return true;
+    } else {
+      result.textContent = 'No match';
+      result.className = 'big err';
+      showNoMatch(norm.streetKey, norm.number);
+      return false;
     }
-    const candidate = best || lines[0] || "";
-    manual.value = candidate;
-    handleQuery(candidate);
-  } catch (e) {
-    alert('OCR failed. Try better lighting and center the address inside the box.');
   }
-}
 
-document.getElementById('enable').addEventListener('click', enableVoice);
-document.getElementById('talk').addEventListener('click', startListening);
-document.getElementById('go').addEventListener('click', () => handleQuery(manual.value));
-scanBtn.addEventListener('click', openCamera);
-closeCam.addEventListener('click', closeCamera);
-snap.addEventListener('click', ocrCapture);
+  // Voice
+  btn.addEventListener('click', () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { warn('Speech recognition not supported here.'); return; }
+    const rec = new SR();
+    rec.lang = 'en-US';
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    rec.onresult = (e) => { const txt = e.results[0][0].transcript; handleQuery(txt); };
+    rec.onerror = (err) => warn('Mic error: ' + (err?.error || 'unknown'));
+    rec.start();
+  });
+  go.addEventListener('click', () => handleQuery(manual.value));
+
+  // Auto-scan camera OCR
+  const openCam = document.getElementById('openCam');
+  const stopCam = document.getElementById('stopCam');
+  const vidwrap = document.getElementById('vidwrap');
+  const video = document.getElementById('video');
+  const bbox = document.getElementById('bbox');
+  const canvas = document.getElementById('canvas');
+  const statusEl = document.getElementById('status');
+  let stream = null, raf = null, lastHash = null, stableCount = 0, scanning = false;
+
+  function hashFrame(ctx, w, h) {
+    let sum = 0, step = 16;
+    const data = ctx.getImageData(0,0,w,h).data;
+    for (let y=0; y<h; y+=step) {
+      for (let x=0; x<w; x+=step) {
+        const i = (y*w + x)*4; sum += data[i] + data[i+1] + data[i+2];
+      }
+    }
+    return sum;
+  }
+  function preprocess(ctx, w, h) {
+    const img = ctx.getImageData(0,0,w,h);
+    const d = img.data;
+    for (let i=0; i<d.length; i+=4) {
+      const g = 0.2126*d[i] + 0.7152*d[i+1] + 0.0722*d[i+2];
+      const c = Math.max(0, Math.min(255, (g-128)*1.2 + 128));
+      d[i]=d[i+1]=d[i+2]=c;
+    }
+    ctx.putImageData(img,0,0);
+  }
+
+  async function frameLoop() {
+    if (!scanning) return;
+    const rect = video.getBoundingClientRect();
+    const box = bbox.getBoundingClientRect();
+    const scaleX = video.videoWidth / rect.width;
+    const scaleY = video.videoHeight / rect.height;
+    const sx = Math.max(0, (box.left - rect.left) * scaleX);
+    const sy = Math.max(0, (box.top - rect.top) * scaleY);
+    const sw = Math.max(10, box.width * scaleX);
+    const sh = Math.max(10, box.height * scaleY);
+
+    const w = Math.floor(sw/2), h = Math.floor(sh/2);
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
+    preprocess(ctx, w, h);
+
+    const hash = hashFrame(ctx, w, h);
+    const diff = lastHash ? Math.abs(hash - lastHash) : 1e9;
+    lastHash = hash;
+    if (diff < 5000) { stableCount++; statusEl.textContent = `Steady... scanning (${stableCount})`; }
+    else { stableCount = 0; statusEl.textContent = 'Align the delivery address in the box...'; }
+
+    if (stableCount >= 8) {
+      stableCount = 0;
+      try {
+        const o = await Tesseract.recognize(canvas, 'eng');
+        const text = o?.data?.text || "";
+        const lines = text.split(/\n+/).map(x => x.trim()).filter(Boolean);
+        let candidate = "";
+        for (const ln of lines) { if (/\b\d+\b/.test(ln) && /(st\b|street\b|ave\b|avenue\b)/i.test(ln)) { candidate = ln; break; } }
+        candidate = candidate || lines[0] || "";
+        if (candidate) { const ok = handleQuery(candidate); if (ok) { stopAutoScan(); return; } }
+      } catch (e) { warn('OCR error (try HTTPS / better lighting).'); }
+    }
+    raf = requestAnimationFrame(frameLoop);
+  }
+  async function startAutoScan() {
+    if (!BROWSER_SECURE) { warn('Camera blocked. Serve via HTTPS or localhost.'); return; }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      video.srcObject = stream;
+      await video.play();
+      vidwrap.style.display = 'block';
+      openCam.style.display = 'none';
+      stopCam.style.display = 'inline-block';
+      scanning = true;
+      lastHash = null; stableCount = 0;
+      raf = requestAnimationFrame(frameLoop);
+    } catch (e) { warn('Camera access failed: ' + e); }
+  }
+  function stopAutoScan() {
+    scanning = false;
+    if (raf) cancelAnimationFrame(raf);
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    vidwrap.style.display = 'none';
+    openCam.style.display = 'inline-block';
+    stopCam.style.display = 'none';
+    statusEl.textContent = 'Align the delivery address in the box. I’ll capture automatically once it’s steady.';
+  }
+  document.getElementById('openCam').addEventListener('click', startAutoScan);
+  document.getElementById('stopCam').addEventListener('click', stopAutoScan);
+});
 </script>
 </body>
 </html>
